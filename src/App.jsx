@@ -7,37 +7,67 @@ const BRANCH  = 'main'
 const GH_API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/platform.json?ref=${BRANCH}`
 const COMMITS_URL = `https://api.github.com/repos/${OWNER}/${REPO}/commits?path=platform.json&per_page=1&sha=${BRANCH}`
 
-// ====== Theme helpers ======
+// ====== Theme helpers (no Tailwind dark variant needed) ======
 function getInitialTheme() {
   const saved = localStorage.getItem('pp_theme')
   if (saved === 'dark' || saved === 'light') return saved
-  // default to system preference
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 function applyTheme(theme) {
-  const root = document.documentElement
-  const body = document.body
-  if (theme === 'dark') {
-    root.classList.add('dark'); body.classList.add('dark')
-  } else {
-    root.classList.remove('dark'); body.classList.remove('dark')
-  }
+  document.documentElement.setAttribute('data-theme', theme)
   localStorage.setItem('pp_theme', theme)
 }
 
+// Inline CSS that drives the theme via CSS variables & lightweight utility overrides
+const THEME_CSS = `
+:root{
+  --bg: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --panel: #ffffff;
+  --panel-alt: #f4f4f5;
+  --border: #e5e7eb;
+  --link: #2563eb;
+  --mark: #fde68a;
+}
+html[data-theme="dark"]{
+  --bg: #0a0a0a;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --panel: #0b0b0f;
+  --panel-alt: #111827;
+  --border: #27272a;
+  --link: #60a5fa;
+  --mark: #ca8a04;
+}
+/* Generic overrides driven by vars (no Tailwind dark needed) */
+body{ background: var(--bg); color: var(--text); }
+.themed-bg{ background: var(--bg) !important; color: var(--text) !important; }
+.themed-panel{ background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.border-theme{ border-color: var(--border) !important; }
+.input-theme{ background: var(--panel-alt) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.btn-theme{ background: var(--panel-alt) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.btn-theme:hover{ filter: brightness(1.05); }
+mark{ background: var(--mark); color: inherit; }
+/* Typography-ish tweaks */
+.prose{ color: var(--text); }
+.prose h1,.prose h2,.prose h3,.prose h4{ color: var(--text); }
+.prose p,.prose li{ color: var(--text); }
+.prose a{ color: var(--link); }
+`;
+
+// ====== App ======
 export default function App() {
   const [query, setQuery] = useState('')
   const [tocOpen, setTocOpen] = useState(false)
 
-  // Theme
+  // Theme (pure CSS, no Tailwind config required)
   const [theme, setTheme] = useState(getInitialTheme())
+  useEffect(() => { applyTheme(theme) }, [theme])
   useEffect(() => {
-    applyTheme(theme)
-  }, [theme])
-  // If user hasn't set a preference, follow system changes until they click the toggle
-  useEffect(() => {
+    // Follow system changes until user explicitly toggles
     const saved = localStorage.getItem('pp_theme')
-    if (saved === 'dark' || saved === 'light') return // user set a pref
+    if (saved === 'dark' || saved === 'light') return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = (e) => applyTheme(e.matches ? 'dark' : 'light')
     mq.addEventListener?.('change', handler)
@@ -133,31 +163,38 @@ export default function App() {
     const q = query.trim()
     const re = new RegExp(`(${escapeRegExp(q)})`, 'ig')
     return text.split(re).map((chunk, i) =>
-      re.test(chunk) ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-600 rounded px-0.5">{chunk}</mark> : <span key={i}>{chunk}</span>
+      re.test(chunk) ? <mark key={i}>{chunk}</mark> : <span key={i}>{chunk}</span>
     )
   }
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-blue-600 text-white px-3 py-2 rounded">Skip to content</a>
+    <div className="min-h-screen themed-bg">
+      {/* Inject theme CSS */}
+      <style>{THEME_CSS}</style>
 
-      <header className="sticky top-0 z-40 backdrop-blur border-b border-zinc-200/70 dark:border-zinc-800/70 bg-white/70 dark:bg-zinc-950/70">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            aria-label="Toggle table of contents"
-            onClick={() => setTocOpen(v => !v)}
-            className="md:hidden inline-flex items-center justify-center w-9 h-9 rounded-xl border border-zinc-300 dark:border-zinc-700"
-          >
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2"
+         style={{background:'#2563eb',color:'#fff',padding:'0.5rem 0.75rem',borderRadius:'0.5rem'}}>Skip to content</a>
+
+      <header className="sticky top-0 z-40 border-b"
+              style={{backdropFilter:'blur(8px)'}}
+      >
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 themed-panel border-theme"
+             style={{borderWidth:1}}>
+          <button aria-label="Toggle table of contents"
+                  onClick={() => setTocOpen(v => !v)}
+                  className="md:hidden inline-flex items-center justify-center"
+                  style={{ width:36, height:36, borderRadius:12, border:'1px solid', borderColor:'var(--border)'}}>
             ☰
           </button>
 
-          <h1 className="text-xl font-bold tracking-tight">
+          <h1 className="text-xl font-bold" style={{letterSpacing:'-0.01em'}}>
             {data?.title || 'Policy Platform'}
           </h1>
 
           {/* Last updated pill */}
           {lastUpdated && (
-            <span className="ml-2 hidden md:inline-flex items-center text-xs border border-zinc-300 dark:border-zinc-700 rounded-xl px-2 py-1">
+            <span className="ml-2 hidden md:inline-flex items-center text-xs"
+                  style={{ border:'1px solid var(--border)', borderRadius:12, padding:'2px 8px' }}>
               Updated {new Date(lastUpdated).toLocaleString()}
             </span>
           )}
@@ -166,7 +203,8 @@ export default function App() {
           <a
             href={`https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/platform.json`}
             target="_blank" rel="noreferrer"
-            className="ml-2 text-xs underline"
+            className="ml-2 text-xs"
+            style={{ textDecoration:'underline', color:'var(--link)' }}
           >
             Edit platform.json
           </a>
@@ -176,14 +214,16 @@ export default function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search policies…"
-              className="w-56 md:w-72 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white/80 dark:bg-zinc-900/80 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="input-theme"
+              style={{ width:'18rem', maxWidth:'20rem', border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14 }}
               disabled={!data}
             />
 
-            {/* Dark/Light toggle */}
+            {/* Theme toggle (no Tailwind dark dependency) */}
             <button
               onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm"
+              className="btn-theme"
+              style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14 }}
               aria-pressed={theme === 'dark'}
               aria-label="Toggle dark mode"
               title="Toggle dark/light"
@@ -192,9 +232,18 @@ export default function App() {
             </button>
 
             <div className="hidden md:flex gap-2">
-              <button onClick={onExportMarkdown} disabled={!data} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm disabled:opacity-50">Export MD</button>
-              <button onClick={onExportHTML} disabled={!data} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm disabled:opacity-50">Export HTML</button>
-              <button onClick={() => window.print()} disabled={!data} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm disabled:opacity-50">Print</button>
+              <button onClick={onExportMarkdown} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Export MD
+              </button>
+              <button onClick={onExportHTML} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Export HTML
+              </button>
+              <button onClick={() => window.print()} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Print
+              </button>
             </div>
           </div>
         </div>
@@ -202,14 +251,14 @@ export default function App() {
 
       <div className="max-w-6xl mx-auto px-4 grid grid-cols-1 md:grid-cols-[16rem_1fr] gap-6 py-6">
         {/* TOC */}
-        <aside className={`md:sticky md:top-16 h-fit md:block ${tocOpen ? 'block' : 'hidden'} md:!block bg-zinc-50 dark:bg-zinc-900 md:bg-transparent md:dark:bg-transparent rounded-xl md:rounded-none border md:border-0 border-zinc-200 dark:border-zinc-800 p-4 md:p-0`}>
-          <nav aria-label="Table of contents" className="md:pr-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">Sections</p>
+        <aside className={`md:sticky md:top-16 h-fit ${tocOpen ? 'block' : 'hidden'} md:!block`}>
+          <nav aria-label="Table of contents" className="md:pr-4 themed-panel border-theme" style={{borderWidth:1, borderRadius:12, padding:16}}>
+            <p className="text-xs" style={{ textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--muted)', marginBottom:8 }}>Sections</p>
             <ul className="space-y-1">
               {(data?.sections || []).map((s) => (
                 <li key={s.id}>
-                  <a href={`#${s.id}`} className="block rounded-lg px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                    <span className="text-sm font-medium">{s.index}. {s.title}</span>
+                  <a href={`#${s.id}`} className="block" style={{ borderRadius:8, padding:'6px 8px' }}>
+                    <span className="text-sm" style={{ fontWeight:600 }}>{s.index}. {s.title}</span>
                   </a>
                 </li>
               ))}
@@ -218,13 +267,15 @@ export default function App() {
         </aside>
 
         {/* Main */}
-        <main id="main" className="prose prose-zinc dark:prose-invert max-w-none">
-          {loading && <p className="text-sm text-zinc-500">Loading platform…</p>}
+        <main id="main" className="prose" style={{ maxWidth:'none' }}>
+          {loading && <p style={{ color:'var(--muted)', fontSize:14 }}>Loading platform…</p>}
           {!loading && error && (
-            <div className="text-sm text-red-600 dark:text-red-400">
-              Failed to load <code>platform.json</code> ({error}).<br />
+            <div style={{ color:'#dc2626', fontSize:14 }}>
+              Failed to load <code>platform.json</code> ({error}). <br />
               Make sure it exists at:&nbsp;
-              <a className="underline" href={`https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/platform.json`} target="_blank" rel="noreferrer">
+              <a style={{ textDecoration:'underline', color:'var(--link)' }}
+                 href={`https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/platform.json`}
+                 target="_blank" rel="noreferrer">
                 /{OWNER}/{REPO}/platform.json
               </a>
             </div>
@@ -232,62 +283,64 @@ export default function App() {
 
           {!loading && !error && data && (
             <>
-              <p className="text-zinc-600 dark:text-zinc-400">
+              <p style={{ color:'var(--muted)' }}>
                 Vision: restore faith in government, empower people through democracy, defend individual freedoms,
                 and build a just economy and sustainable future.
               </p>
 
-              {filtered.length === 0 && (
-                <p className="text-sm text-zinc-500">No matches for “{query}”.</p>
-              )}
+              {(() => {
+                if (filtered.length === 0) {
+                  return <p style={{ color:'var(--muted)', fontSize:14 }}>No matches for “{query}”.</p>
+                }
+                return filtered.map((sec) => (
+                  <section id={sec.id} key={sec.id} style={{ scrollMarginTop: '6rem' }}>
+                    <div className="flex items-start gap-3">
+                      <h2 style={{ marginTop:'2rem' }}>{sec.index}. {sec.title}</h2>
+                      <button
+                        onClick={() => onCopyLink(sec.id)}
+                        className="btn-theme"
+                        style={{ marginTop:'2rem', marginLeft:8, border:'1px solid var(--border)', borderRadius:8, padding:'2px 6px', fontSize:12 }}
+                        title="Copy link to section"
+                      >
+                        Link
+                      </button>
+                    </div>
+                    {sec.subtitle && <p style={{ marginTop:'-0.75rem', color:'var(--muted)' }}>{sec.subtitle}</p>}
+                    {sec.items && (
+                      <ul>
+                        {sec.items.map((it, idx) => (
+                          <li key={idx}>
+                            {it.title ? (
+                              <p><strong>{highlight(it.title)}:</strong> {highlight(it.text)}</p>
+                            ) : (
+                              <p>{highlight(it.text)}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                ))
+              })()}
 
-              {filtered.map((sec) => (
-                <section id={sec.id} key={sec.id} className="scroll-mt-24">
-                  <div className="flex items-start gap-3">
-                    <h2 className="mt-8">{sec.index}. {sec.title}</h2>
-                    <button
-                      onClick={() => onCopyLink(sec.id)}
-                      className="mt-8 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                      title="Copy link to section"
-                    >
-                      Link
-                    </button>
-                  </div>
-                  {sec.subtitle && <p className="-mt-4 text-zinc-600 dark:text-zinc-400">{sec.subtitle}</p>}
-                  {sec.items && (
-                    <ul>
-                      {sec.items.map((it, idx) => (
-                        <li key={idx}>
-                          {it.title ? (
-                            <p><strong>{highlight(it.title)}:</strong> {highlight(it.text)}</p>
-                          ) : (
-                            <p>{highlight(it.text)}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              ))}
-
-              <hr className="my-10" />
-              <section id="vision" className="scroll-mt-24">
+              <hr style={{ margin:'2.5rem 0', borderColor:'var(--border)' }} />
+              <section id="vision" style={{ scrollMarginTop: '6rem' }}>
                 <h2>Vision Statement</h2>
                 <p>This platform rejects corruption and concentrated power, embracing transparency, accountability, and fairness as guiding principles.</p>
               </section>
 
-              <div className="my-10 flex flex-wrap gap-2">
-                <button onClick={onExportMarkdown} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm">Export Markdown</button>
-                <button onClick={onExportHTML} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm">Export HTML</button>
-                <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm">Back to top</button>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', margin:'2rem 0' }}>
+                <button onClick={onExportMarkdown} className="btn-theme" style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14 }}>Export Markdown</button>
+                <button onClick={onExportHTML} className="btn-theme" style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14 }}>Export HTML</button>
+                <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="btn-theme" style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14 }}>Back to top</button>
               </div>
             </>
           )}
         </main>
       </div>
 
-      <footer className="border-t border-zinc-200 dark:border-zinc-800 py-8 text-center text-sm text-zinc-500">
-        Built with ❤️ — Vite + React + Tailwind.
+      <footer className="py-8 text-center" style={{ borderTop:'1px solid var(--border)', color:'var(--muted)', fontSize:14 }}>
+        Built with ❤️ — Vite + React. Theme: {theme}
       </footer>
     </div>
   )
