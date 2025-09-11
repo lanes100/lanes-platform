@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-// Runtime JSON source from your repo (main branch)
-const RAW_JSON_URL = 'https://raw.githubusercontent.com/lanes100/lanes-platform/main/platform.json'
+// === Live data sources ===
+const OWNER = 'lanes100'
+const REPO  = 'lanes-platform'
+const BRANCH = 'main' // change if your default branch is different
+const RAW_JSON_URL = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/platform.json`
+const GH_API_URL   = `https://api.github.com/repos/${OWNER}/${REPO}/contents/platform.json?ref=${BRANCH}`
 
 export default function App() {
   const [query, setQuery] = useState('')
@@ -10,6 +14,7 @@ export default function App() {
 
   // Start with embedded data; allow live override
   const [data, setData] = useState(PLATFORM_DATA)
+  const [liveSource, setLiveSource] = useState('embedded') // 'embedded' | 'raw' | 'api' | 'error'
 
   useEffect(() => {
     const saved = localStorage.getItem('pp_dark')
@@ -22,20 +27,45 @@ export default function App() {
     localStorage.setItem('pp_dark', dark ? '1' : '0')
   }, [dark])
 
-  // Fetch latest platform.json at runtime
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(`${RAW_JSON_URL}?t=${Date.now()}`, { cache: 'no-store' })
-        if (!res.ok) return
+  // Fetch latest platform.json at runtime (raw -> api fallback)
+  useEffect(() => { fetchPlatform() }, [])
+
+  async function fetchPlatform() {
+    // 1) Try raw.githubusercontent
+    try {
+      const res = await fetch(`${RAW_JSON_URL}?t=${Date.now()}`, { cache: 'no-store' })
+      if (res.ok) {
         const json = await res.json()
-        if (json?.sections?.length) setData(json)
-      } catch {
-        /* ignore network errors; keep fallback */
+        if (json?.sections?.length) {
+          setData(json)
+          setLiveSource('raw')
+          return
+        }
       }
-    }
-    load()
-  }, [])
+    } catch (_) {}
+
+    // 2) Fallback: GitHub API (base64 content)
+    try {
+      const res = await fetch(`${GH_API_URL}&t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Accept': 'application/vnd.github.v3+json' },
+      })
+      if (res.ok) {
+        const api = await res.json()
+        if (api?.content) {
+          const decoded = JSON.parse(atob(api.content.replace(/\n/g, '')))
+          if (decoded?.sections?.length) {
+            setData(decoded)
+            setLiveSource('api')
+            return
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3) If both fail, keep embedded
+    setLiveSource('error')
+  }
 
   const filtered = useMemo(() => {
     if (!query.trim()) return data.sections
@@ -65,14 +95,8 @@ export default function App() {
     const html = buildHTML(data)
     downloadFile('platform.html', html, 'text/html;charset=utf-8')
   }
-  const onRefresh = async () => {
-    try {
-      const res = await fetch(`${RAW_JSON_URL}?t=${Date.now()}`, { cache: 'no-store' })
-      if (!res.ok) return
-      const json = await res.json()
-      if (json?.sections?.length) setData(json)
-    } catch {}
-  }
+  const onRefresh = () => fetchPlatform()
+
   const highlight = (text) => {
     if (!query.trim()) return text
     const q = query.trim()
@@ -82,6 +106,7 @@ export default function App() {
     )
   }
 
+  // Deep-link on load
   useEffect(() => {
     const id = decodeURIComponent(location.hash.replace('#', ''))
     if (id) {
@@ -99,6 +124,12 @@ export default function App() {
             <span>☰</span>
           </button>
           <h1 className="text-xl font-bold tracking-tight">Policy Platform</h1>
+
+          {/* Status pill */}
+          <span className="ml-2 hidden md:inline-flex items-center text-xs border border-zinc-300 dark:border-zinc-700 rounded-xl px-2 py-1">
+            Live: {liveSource}
+          </span>
+
           <div className="ml-auto flex items-center gap-2">
             <input
               value={query}
@@ -138,9 +169,7 @@ export default function App() {
         <main id="main" className="prose prose-zinc dark:prose-invert max-w-none">
           <p className="text-zinc-600 dark:text-zinc-400">Vision: restore faith in government, empower people through democracy, defend individual freedoms, and build a just economy and sustainable future.</p>
 
-          {filtered.length === 0 && (
-            <p className="text-sm text-zinc-500">No matches for “{query}”.</p>
-          )}
+          {filtered.length === 0 && <p className="text-sm text-zinc-500">No matches for “{query}”.</p>}
 
           {filtered.map((sec) => (
             <section id={sec.id} key={sec.id} className="scroll-mt-24">
@@ -154,9 +183,7 @@ export default function App() {
                   {sec.items.map((it, idx) => (
                     <li key={idx}>
                       {it.title ? (
-                        <p>
-                          <strong>{highlight(it.title)}:</strong> {highlight(it.text)}
-                        </p>
+                        <p><strong>{highlight(it.title)}:</strong> {highlight(it.text)}</p>
                       ) : (
                         <p>{highlight(it.text)}</p>
                       )}
@@ -183,7 +210,7 @@ export default function App() {
       </div>
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-8 text-center text-sm text-zinc-500">
-        Built with ❤️ — Vite + React + Tailwind. (Live data from platform.json)
+        Built with ❤️ — Vite + React + Tailwind. (Data: {liveSource})
       </footer>
     </div>
   )
@@ -214,165 +241,100 @@ function buildHTML(data){
   const md=buildMarkdown(data)
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(data.title)}</title></head><body><pre>${escapeHtml(md)}</pre></body></html>`
 }
-function escapeHtml(s){ return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])) }
+function escapeHtml(s){ return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;","<": "&lt;",">":"&gt;",'"':"&quot;"}[c])) }
 
-/* ---------- Fallback Content (used if fetch fails) ---------- */
+/* ---------- Embedded fallback (used only if live fetch fails) ---------- */
 const PLATFORM_DATA = {
   "title": "A Platform for a Transparent, Just, and Free America",
   "sections": [
-    {
-      "id": "trust",
-      "index": 1,
-      "title": "Restoring Trust in Government",
-      "items": [
-        { "title": "Budget Transparency", "text": "Mandate clear, accessible public reporting of all federal expenditures." },
-        { "title": "Accountability in Power", "text": "Public release of the Epstein list to ensure transparency in matters of corruption and abuse." },
-        { "title": "Conflict of Interest Reform", "text": "All elected officials and cabinet members must divest from private investments before assuming office." },
-        { "title": "End Corruption", "text": "Outlaw lobbying and bribery in Washington; enact real-time disclosure of all political spending and contacts." },
-        { "title": "Age Limits for Office", "text": "Impose maximum age limits for both congressional and presidential candidates to ensure generational turnover." },
-        { "title": "Supreme Court Ethics", "text": "Enforce binding ethics, financial disclosure, and recusal rules for Supreme Court justices; study options for structural reform and term limits." }
-      ]
-    },
-    {
-      "id": "democracy",
-      "index": 2,
-      "title": "Strengthening Democracy",
-      "items": [
-        { "title": "Modernized Elections", "text": "Implement ranked-choice voting for congressional and presidential elections nationwide." },
-        { "title": "Redistricting Reform", "text": "Require independent redistricting commissions in every state to eliminate partisan gerrymandering." },
-        { "title": "Universal Civic Duty", "text": "Mandatory voting in federal elections with small fines for non-participation. Every voter retains the right to submit a blank ballot or select a formal ‘none of the above.’" },
-        { "title": "Ban on Encouraging Invalid Votes", "text": "Prohibit organized efforts to promote blank/invalid ballots during elections." },
-        { "title": "Voting Accessibility", "text": "Make Election Day a national holiday and require at least 4 hours of paid time off to vote." },
-        { "title": "Expanded Electorate", "text": "Lower the voting age to 16." }
-      ]
-    },
-    {
-      "id": "rights",
-      "index": 3,
-      "title": "Protecting Rights & Freedoms",
-      "items": [
-        { "title": "Codify Core Rights", "text": "Enshrine Roe v. Wade, Obergefell v. Hodges, Loving v. Virginia, and Griswold v. Connecticut in federal law." },
-        { "title": "Free Expression", "text": "Protect speech and assembly on college campuses, including political and anti-war protest." },
-        { "title": "Live-and-Let-Live", "text": "Safeguard personal freedoms from undue government intrusion." },
-        { "title": "Secular Governance", "text": "Strengthen the separation of church and state: prohibit religious tests for office, bar use of public funds for religious indoctrination, keep government policy and public education neutral on religion, and remove official religious endorsements or symbols from government institutions." }
-      ]
-    },
-    {
-      "id": "welfare",
-      "index": 4,
-      "title": "Health, Safety, and Social Welfare",
-      "items": [
-        { "title": "Universal Healthcare (State-Run Single Payer)", "text": "Replace Medicaid/Medicare with interoperable, state-administered single-payer systems guaranteeing comprehensive coverage in every state, including rural access." },
-        { "title": "Prescription Drug Reform", "text": "Tie prices to a global reference basket; significantly shorten patent exclusivity; allow emergency suspension of patents for high-impact public health drugs (e.g., GLP-1s) to ensure access." },
-        { "title": "Mental Health Parity", "text": "Enforce equal coverage and access across all plans and networks." },
-        { "title": "Reproductive Healthcare", "text": "Fully fund Planned Parenthood and community clinics." },
-        { "title": "School Safety", "text": "Federally fund evidence-based security upgrades at schools." },
-        { "title": "Social Supports", "text": "Relax SSI/SSDI eligibility; remove SNAP work requirements; raise SNAP income limits." }
-      ]
-    },
-    {
-      "id": "labor",
-      "index": 5,
-      "title": "Economic Justice & Labor Rights",
-      "items": [
-        { "title": "Fair Wages", "text": "Raise the federal minimum wage to $25/hr." },
-        { "title": "Automatic Cost-of-Living Adjustments", "text": "Index the minimum wage to inflation with scheduled annual adjustments." },
-        { "title": "Collective Bargaining", "text": "Protect the right to unionize; ban captive-audience meetings and union-busting tactics; require good-faith bargaining." },
-        { "title": "Gig Worker Protections", "text": "End misclassification; if treated as contractors, require core benefits via platform-funded benefits pools." },
-        { "title": "Overtime & Misclassification", "text": "Strengthen overtime rules and penalties for wage theft; tighten exemptions." },
-        { "title": "Corporate Responsibility", "text": "Increase corporate tax rates and aggressively enforce antitrust laws to break up monopolies." }
-      ]
-    },
-    {
-      "id": "tax",
-      "index": 6,
-      "title": "Taxation & Wealth",
-      "items": [
-        { "title": "Wealth Tax", "text": "Levy a modest annual tax on extreme wealth (e.g., above a high threshold)." },
-        { "title": "Capital Gains Parity (Under Review)", "text": "Study phased parity of capital gains and ordinary income, with safeguards for retirement savings and small business investment." },
-        { "title": "Estate Tax Reform", "text": "Exempt estates under $5 million (indexed to inflation) to support generational wealth-building; impose progressive rates above that, with significantly higher rates on ultra-high-value estates." }
-      ]
-    },
-    {
-      "id": "housing",
-      "index": 7,
-      "title": "Housing & Community Stability",
-      "items": [
-        { "title": "Vacancy Penalties", "text": "Impose substantial fines on properties left vacant longer than 6 months without residents." },
-        { "title": "Anti-Corporate Rentals", "text": "Prohibit hedge funds and real estate conglomerates from buying/renting single-family homes; restrict SFR ownership to individuals." },
-        { "title": "Community Priority", "text": "Treat housing as a right and curb speculative practices that reduce supply." }
-      ]
-    },
-    {
-      "id": "justice",
-      "index": 8,
-      "title": "Criminal Justice Reform",
-      "items": [
-        { "title": "Gun Safety with Amnesty", "text": "Nationwide voluntary gun buyback with full amnesty for surrendering illegal firearms; universal background checks for all purchases." },
-        { "title": "Drug Policy", "text": "Decriminalize low-level possession; expand treatment-first approaches." },
-        { "title": "Bail Reform", "text": "Eliminate cash bail for non-violent offenses; implement equitable ability-to-pay standards so bail is proportional and does not criminalize poverty." },
-        { "title": "Police Accountability", "text": "National use-of-force standards, universal body cams, independent state oversight boards with enforcement power; end qualified immunity; reform police union practices that obstruct accountability." },
-        { "title": "Prison Reform", "text": "End for-profit prisons; improve conditions; expand education and reentry; automatic expungement for cannabis and other decriminalized offenses; federally legalize/reschedule cannabis." }
-      ]
-    },
-    {
-      "id": "infra",
-      "index": 9,
-      "title": "Environment, Infrastructure & Technology",
-      "items": [
-        { "title": "Green Renewal 2.0", "text": "Relaunch a climate/jobs program with deeper investment in renewables, grid-scale storage, and decarbonized industry." },
-        { "title": "Grid & Energy Security", "text": "Modernize and harden the national grid; deepen partnerships with allied nations (e.g., Korea) to accelerate advanced transmission, batteries, and clean manufacturing." },
-        { "title": "Water Systems", "text": "National program to replace lead pipes, secure reservoirs, and drought-proof critical regions." },
-        { "title": "Interstate Upgrades", "text": "Rebuild and thicken interstate roadbeds (Autobahn-style longevity) to reduce life-cycle costs; prioritize safety and freight efficiency." },
-        { "title": "Earthquake Resilience", "text": "Adopt Japan-style seismic standards and retrofit programs in quake-prone regions." },
-        { "title": "High-Speed Rail & Transit", "text": "Fund national HSR corridors and clean mass transit—ambitious but essential for mobility, climate, and competitiveness." },
-        { "title": "Digital Commons", "text": "Classify broadband as a basic utility/common carrier; codify net neutrality; GDPR-style data privacy; Right to Repair across devices and equipment." },
-        { "title": "AI Oversight", "text": "Federal AI safety/ethics regulator; risk-tiered audits; transparency for high-impact systems." }
-      ]
-    },
-    {
-      "id": "education",
-      "index": 10,
-      "title": "Education & Childcare",
-      "items": [
-        { "title": "Universal Pre-K", "text": "Free, universal early childhood education." },
-        { "title": "Free Childcare for Struggling Families", "text": "Means-tested support to ensure parents can work or study." },
-        { "title": "K–12 Funding Reform", "text": "Keep property taxes, but pool them statewide and distribute by student population and need—ending district wealth gaps." },
-        { "title": "Tuition-Free College", "text": "Public colleges and trade schools tuition-free; robust apprenticeships and vocational pathways." }
-      ]
-    },
-    {
-      "id": "rural",
-      "index": 11,
-      "title": "Rural & Regional Equity",
-      "items": [
-        { "title": "Healthcare Access", "text": "Guaranteed via universal single-payer coverage, mobile clinics, and rural hospital sustainment." },
-        { "title": "Support Small Farmers", "text": "Shift subsidies and market power away from agribusiness monopolies; invest in local and sustainable agriculture." },
-        { "title": "Trampoline Effect for Sustainable Farming", "text": "Invest in resilience so farms bounce back stronger from shocks: climate-smart practices (soil carbon, cover crops, water capture), diversified farm income (local processing, value-add, agritourism), on-farm renewables and microgrids, methane capture/composting, drought/flood adaptation, and rapid-response grants or reinsurance—building green supply chains and rural jobs." },
-        { "title": "Disaster Preparedness", "text": "Scale wildfire, quake (Cascadia), flood, and hurricane readiness with resilient infrastructure and community response funding." }
-      ]
-    },
-    {
-      "id": "foreign",
-      "index": 12,
-      "title": "Foreign Policy & Defense",
-      "items": [
-        { "title": "End Endless Wars", "text": "Reassert congressional war powers; restrict unauthorized overseas interventions." },
-        { "title": "Allies & Values", "text": "Maintain robust support for Ukraine’s defense; end U.S. funding for Israel’s military operations; pursue human-rights-centered diplomacy." },
-        { "title": "Defense Audit & Transparency", "text": "Comprehensive audits and waste reduction with redactions narrowly tailored to protect operatives, sources, and sensitive capabilities." }
-      ]
-    },
-    {
-      "id": "immigration",
-      "index": 13,
-      "title": "Immigration & Citizenship",
-      "items": [
-        { "title": "Earned Path to Citizenship", "text": "Create a clear, humane path to citizenship for undocumented residents, including Dreamers—background checks, English/civics, and reasonable fees with access to legal counsel." },
-        { "title": "Modernized Legal Immigration", "text": "Digitize case management, expand and right-size visa numbers, clear backlogs, and create regional processing hubs for timely, fair adjudication." },
-        { "title": "Humane Border & Smart Enforcement", "text": "Shift from mass detention to case management; significantly reduce ICE workforce; end family separation; prioritize enforcement against trafficking, violent crime, and abusive employers." },
-        { "title": "Work Authorization & Worker Protections", "text": "Provide timely work permits and protect workers—regardless of status—from exploitation; decouple status from a single employer to reduce coercion." },
-        { "title": "Integration", "text": "Invest in English language learning, credential recognition, and job training so newcomers contribute fully and safely." }
-      ]
-    }
+    { "id": "trust", "index": 1, "title": "Restoring Trust in Government", "items": [
+      { "title": "Budget Transparency", "text": "Mandate clear, accessible public reporting of all federal expenditures." },
+      { "title": "Accountability in Power", "text": "Public release of the Epstein list to ensure transparency in matters of corruption and abuse." },
+      { "title": "Conflict of Interest Reform", "text": "All elected officials and cabinet members must divest from private investments before assuming office." },
+      { "title": "End Corruption", "text": "Outlaw lobbying and bribery in Washington; enact real-time disclosure of all political spending and contacts." },
+      { "title": "Age Limits for Office", "text": "Impose maximum age limits for both congressional and presidential candidates to ensure generational turnover." },
+      { "title": "Supreme Court Ethics", "text": "Enforce binding ethics, financial disclosure, and recusal rules for Supreme Court justices; study options for structural reform and term limits." }
+    ]},
+    { "id": "democracy", "index": 2, "title": "Strengthening Democracy", "items": [
+      { "title": "Modernized Elections", "text": "Implement ranked-choice voting for congressional and presidential elections nationwide." },
+      { "title": "Redistricting Reform", "text": "Require independent redistricting commissions in every state to eliminate partisan gerrymandering." },
+      { "title": "Universal Civic Duty", "text": "Mandatory voting in federal elections with small fines for non-participation. Every voter retains the right to submit a blank ballot or select a formal ‘none of the above.’" },
+      { "title": "Ban on Encouraging Invalid Votes", "text": "Prohibit organized efforts to promote blank/invalid ballots during elections." },
+      { "title": "Voting Accessibility", "text": "Make Election Day a national holiday and require at least 4 hours of paid time off to vote." },
+      { "title": "Expanded Electorate", "text": "Lower the voting age to 16." }
+    ]},
+    { "id": "rights", "index": 3, "title": "Protecting Rights & Freedoms", "items": [
+      { "title": "Codify Core Rights", "text": "Enshrine Roe v. Wade, Obergefell v. Hodges, Loving v. Virginia, and Griswold v. Connecticut in federal law." },
+      { "title": "Free Expression", "text": "Protect speech and assembly on college campuses, including political and anti-war protest." },
+      { "title": "Live-and-Let-Live", "text": "Safeguard personal freedoms from undue government intrusion." },
+      { "title": "Secular Governance", "text": "Strengthen the separation of church and state: prohibit religious tests for office, bar use of public funds for religious indoctrination, keep government policy and public education neutral on religion, and remove official religious endorsements or symbols from government institutions." }
+    ]},
+    { "id": "welfare", "index": 4, "title": "Health, Safety, and Social Welfare", "items": [
+      { "title": "Universal Healthcare (State-Run Single Payer)", "text": "Replace Medicaid/Medicare with interoperable, state-administered single-payer systems guaranteeing comprehensive coverage in every state, including rural access." },
+      { "title": "Prescription Drug Reform", "text": "Tie prices to a global reference basket; significantly shorten patent exclusivity; allow emergency suspension of patents for high-impact public health drugs (e.g., GLP-1s) to ensure access." },
+      { "title": "Mental Health Parity", "text": "Enforce equal coverage and access across all plans and networks." },
+      { "title": "Reproductive Healthcare", "text": "Fully fund Planned Parenthood and community clinics." },
+      { "title": "School Safety", "text": "Federally fund evidence-based security upgrades at schools." },
+      { "title": "Social Supports", "text": "Relax SSI/SSDI eligibility; remove SNAP work requirements; raise SNAP income limits." }
+    ]},
+    { "id": "labor", "index": 5, "title": "Economic Justice & Labor Rights", "items": [
+      { "title": "Fair Wages", "text": "Raise the federal minimum wage to $25/hr." },
+      { "title": "Automatic Cost-of-Living Adjustments", "text": "Index the minimum wage to inflation with scheduled annual adjustments." },
+      { "title": "Collective Bargaining", "text": "Protect the right to unionize; ban captive-audience meetings and union-busting tactics; require good-faith bargaining." },
+      { "title": "Gig Worker Protections", "text": "End misclassification; if treated as contractors, require core benefits via platform-funded benefits pools." },
+      { "title": "Overtime & Misclassification", "text": "Strengthen overtime rules and penalties for wage theft; tighten exemptions." },
+      { "title": "Corporate Responsibility", "text": "Increase corporate tax rates and aggressively enforce antitrust laws to break up monopolies." }
+    ]},
+    { "id": "tax", "index": 6, "title": "Taxation & Wealth", "items": [
+      { "title": "Wealth Tax", "text": "Levy a modest annual tax on extreme wealth (e.g., above a high threshold)." },
+      { "title": "Capital Gains Parity (Under Review)", "text": "Study phased parity of capital gains and ordinary income, with safeguards for retirement savings and small business investment." },
+      { "title": "Estate Tax Reform", "text": "Exempt estates under $5 million (indexed to inflation) to support generational wealth-building; impose progressive rates above that, with significantly higher rates on ultra-high-value estates." }
+    ]},
+    { "id": "housing", "index": 7, "title": "Housing & Community Stability", "items": [
+      { "title": "Vacancy Penalties", "text": "Impose substantial fines on properties left vacant longer than 6 months without residents." },
+      { "title": "Anti-Corporate Rentals", "text": "Prohibit hedge funds and real estate conglomerates from buying/renting single-family homes; restrict SFR ownership to individuals." },
+      { "title": "Community Priority", "text": "Treat housing as a right and curb speculative practices that reduce supply." }
+    ]},
+    { "id": "justice", "index": 8, "title": "Criminal Justice Reform", "items": [
+      { "title": "Gun Safety with Amnesty", "text": "Nationwide voluntary gun buyback with full amnesty for surrendering illegal firearms; universal background checks for all purchases." },
+      { "title": "Drug Policy", "text": "Decriminalize low-level possession; expand treatment-first approaches." },
+      { "title": "Bail Reform", "text": "Eliminate cash bail for non-violent offenses; implement equitable ability-to-pay standards so bail is proportional and does not criminalize poverty." },
+      { "title": "Police Accountability", "text": "National use-of-force standards, universal body cams, independent state oversight boards with enforcement power; end qualified immunity; reform police union practices that obstruct accountability." },
+      { "title": "Prison Reform", "text": "End for-profit prisons; improve conditions; expand education and reentry; automatic expungement for cannabis and other decriminalized offenses; federally legalize/reschedule cannabis." }
+    ]},
+    { "id": "infra", "index": 9, "title": "Environment, Infrastructure & Technology", "items": [
+      { "title": "Green Renewal 2.0", "text": "Relaunch a climate/jobs program with deeper investment in renewables, grid-scale storage, and decarbonized industry." },
+      { "title": "Grid & Energy Security", "text": "Modernize and harden the national grid; deepen partnerships with allied nations (e.g., Korea) to accelerate advanced transmission, batteries, and clean manufacturing." },
+      { "title": "Water Systems", "text": "National program to replace lead pipes, secure reservoirs, and drought-proof critical regions." },
+      { "title": "Interstate Upgrades", "text": "Rebuild and thicken interstate roadbeds (Autobahn-style longevity) to reduce life-cycle costs; prioritize safety and freight efficiency." },
+      { "title": "Earthquake Resilience", "text": "Adopt Japan-style seismic standards and retrofit programs in quake-prone regions." },
+      { "title": "High-Speed Rail & Transit", "text": "Fund national HSR corridors and clean mass transit—ambitious but essential for mobility, climate, and competitiveness." },
+      { "title": "Digital Commons", "text": "Classify broadband as a basic utility/common carrier; codify net neutrality; GDPR-style data privacy; Right to Repair across devices and equipment." },
+      { "title": "AI Oversight", "text": "Federal AI safety/ethics regulator; risk-tiered audits; transparency for high-impact systems." }
+    ]},
+    { "id": "education", "index": 10, "title": "Education & Childcare", "items": [
+      { "title": "Universal Pre-K", "text": "Free, universal early childhood education." },
+      { "title": "Free Childcare for Struggling Families", "text": "Means-tested support to ensure parents can work or study." },
+      { "title": "K–12 Funding Reform", "text": "Keep property taxes, but pool them statewide and distribute by student population and need—ending district wealth gaps." },
+      { "title": "Tuition-Free College", "text": "Public colleges and trade schools tuition-free; robust apprenticeships and vocational pathways." }
+    ]},
+    { "id": "rural", "index": 11, "title": "Rural & Regional Equity", "items": [
+      { "title": "Healthcare Access", "text": "Guaranteed via universal single-payer coverage, mobile clinics, and rural hospital sustainment." },
+      { "title": "Support Small Farmers", "text": "Shift subsidies and market power away from agribusiness monopolies; invest in local and sustainable agriculture." },
+      { "title": "Trampoline Effect for Sustainable Farming", "text": "Invest in resilience so farms bounce back stronger from shocks: climate-smart practices (soil carbon, cover crops, water capture), diversified farm income (local processing, value-add, agritourism), on-farm renewables and microgrids, methane capture/composting, drought/flood adaptation, and rapid-response grants or reinsurance—building green supply chains and rural jobs." },
+      { "title": "Disaster Preparedness", "text": "Scale wildfire, quake (Cascadia), flood, and hurricane readiness with resilient infrastructure and community response funding." }
+    ]},
+    { "id": "foreign", "index": 12, "title": "Foreign Policy & Defense", "items": [
+      { "title": "End Endless Wars", "text": "Reassert congressional war powers; restrict unauthorized overseas interventions." },
+      { "title": "Allies & Values", "text": "Maintain robust support for Ukraine’s defense; end U.S. funding for Israel’s military operations; pursue human-rights-centered diplomacy." },
+      { "title": "Defense Audit & Transparency", "text": "Comprehensive audits and waste reduction with redactions narrowly tailored to protect operatives, sources, and sensitive capabilities." }
+    ]},
+    { "id": "immigration", "index": 13, "title": "Immigration & Citizenship", "items": [
+      { "title": "Earned Path to Citizenship", "text": "Create a clear, humane path to citizenship for undocumented residents, including Dreamers—background checks, English/civics, and reasonable fees with access to legal counsel." },
+      { "title": "Modernized Legal Immigration", "text": "Digitize case management, expand and right-size visa numbers, clear backlogs, and create regional processing hubs for timely, fair adjudication." },
+      { "title": "Humane Border & Smart Enforcement", "text": "Shift from mass detention to case management; significantly reduce ICE workforce; end family separation; prioritize enforcement against trafficking, violent crime, and abusive employers." },
+      { "title": "Work Authorization & Worker Protections", "text": "Provide timely work permits and protect workers—regardless of status—from exploitation; decouple status from a single employer to reduce coercion." },
+      { "title": "Integration", "text": "Invest in English language learning, credential recognition, and job training so newcomers contribute fully and safely." }
+    ]}
   ]
 }
