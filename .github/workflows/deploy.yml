@@ -3,6 +3,11 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ main ]   # change to 'master' if your default branch is master
+    paths-ignore:
+      - 'platform.json'   # content-only edits won't trigger a build
+      - '**/*.md'         # optional: ignore docs
+      - 'LICENSE'         # optional: ignore license changes
+  workflow_dispatch: {}    # optional: run manually from Actions tab
 
 permissions:
   pages: write
