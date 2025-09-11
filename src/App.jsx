@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-// Always load JSON from GitHub (no fallback)
-const RAW_JSON_URL = 'https://raw.githubusercontent.com/lanes100/lanes-platform/main/platform.json'
+// Always load JSON from GitHub API (no fallback)
+const GH_API_URL = 'https://api.github.com/repos/lanes100/lanes-platform/contents/platform.json?ref=main'
 
 export default function App() {
   const [query, setQuery] = useState('')
@@ -24,18 +24,24 @@ export default function App() {
     localStorage.setItem('pp_dark', dark ? '1' : '0')
   }, [dark])
 
-  // Fetch platform.json (always)
+  // Fetch platform.json from GitHub API (base64 -> JSON)
   useEffect(() => {
     const ac = new AbortController()
     const load = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`${RAW_JSON_URL}?t=${Date.now()}`, { cache: 'no-store', signal: ac.signal })
+        const res = await fetch(`${GH_API_URL}&t=${Date.now()}`, {
+          cache: 'no-store',
+          signal: ac.signal,
+          headers: { 'Accept': 'application/vnd.github.v3+json' }
+        })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const json = await res.json()
-        if (!json?.sections?.length) throw new Error('Invalid JSON (no sections)')
-        setData(json)
+        const file = await res.json()
+        if (!file?.content) throw new Error('Missing content')
+        const decoded = JSON.parse(atob(file.content.replace(/\n/g, '')))
+        if (!decoded?.sections?.length) throw new Error('Invalid JSON (no sections)')
+        setData(decoded)
       } catch (e) {
         if (e.name !== 'AbortError') setError(e.message || 'Failed to load platform.json')
       } finally {
@@ -166,13 +172,14 @@ export default function App() {
             </p>
           )}
 
-          {loading && (
-            <p className="text-sm text-zinc-500">Loading platform…</p>
-          )}
+          {loading && <p className="text-sm text-zinc-500">Loading platform…</p>}
           {!loading && error && (
             <div className="text-sm text-red-600 dark:text-red-400">
               Failed to load <code>platform.json</code> ({error}).<br />
-              Make sure it exists at: <a className="underline" href={RAW_JSON_URL} target="_blank" rel="noreferrer">{RAW_JSON_URL}</a>
+              Make sure it exists at:&nbsp;
+              <a className="underline" href="https://github.com/lanes100/lanes-platform/blob/main/platform.json" target="_blank" rel="noreferrer">
+                /lanes100/lanes-platform/platform.json
+              </a>
             </div>
           )}
 
@@ -222,7 +229,7 @@ export default function App() {
       </div>
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-8 text-center text-sm text-zinc-500">
-        Built with ❤️ — Vite + React + Tailwind. (Data from platform.json)
+        Built with ❤️ — Vite + React + Tailwind. (Data from GitHub API)
       </footer>
     </div>
   )
