@@ -40,10 +40,10 @@ html[data-theme="dark"]{
   --link: #60a5fa;
   --mark: #ca8a04;
 }
-/* Generic overrides driven by vars (no Tailwind dark needed) */
+/* Generic overrides driven by vars */
 body{ background: var(--bg); color: var(--text); }
 .themed-bg{ background: var(--bg) !important; color: var(--text) !important; }
-.themed-panel{ background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important; }
+.themed-panel{ background: var(--panel) !important; color: var(--text) !important; }
 .border-theme{ border-color: var(--border) !important; }
 .input-theme{ background: var(--panel-alt) !important; color: var(--text) !important; border-color: var(--border) !important; }
 .btn-theme{ background: var(--panel-alt) !important; color: var(--text) !important; border-color: var(--border) !important; }
@@ -53,21 +53,19 @@ mark{ background: var(--mark); color: inherit; }
 .prose{ color: var(--text); }
 .prose h1,.prose h2,.prose h3,.prose h4{ color: var(--text); }
 .prose p,.prose li{ color: var(--text); }
-/* <<< Fix: ensure bold text follows theme in dark mode >>> */
+/* Fix: ensure bold text follows theme in dark mode */
 .prose strong, .prose b{ color: var(--text) !important; font-weight: 700; }
 .prose a{ color: var(--link); }
 `;
 
-// ====== App ======
 export default function App() {
   const [query, setQuery] = useState('')
   const [tocOpen, setTocOpen] = useState(false)
 
-  // Theme (pure CSS, no Tailwind config required)
+  // Theme
   const [theme, setTheme] = useState(getInitialTheme())
   useEffect(() => { applyTheme(theme) }, [theme])
   useEffect(() => {
-    // Follow system changes until user explicitly toggles
     const saved = localStorage.getItem('pp_theme')
     if (saved === 'dark' || saved === 'light') return
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
@@ -82,7 +80,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
 
-  // Fetch platform.json (GitHub API) + last commit timestamp
+  // Fetch platform.json + last commit timestamp
   useEffect(() => {
     const ac = new AbortController()
     ;(async () => {
@@ -100,7 +98,6 @@ export default function App() {
         if (!decoded?.sections?.length) throw new Error('Invalid JSON (no sections)')
         setData(decoded)
 
-        // get last updated timestamp
         try {
           const cRes = await fetch(`${COMMITS_URL}&t=${Date.now()}`, { cache: 'no-store', signal: ac.signal })
           if (cRes.ok) {
@@ -118,7 +115,7 @@ export default function App() {
     return () => ac.abort()
   }, [])
 
-  // Search filter
+  // Search
   const filtered = useMemo(() => {
     if (!data) return []
     if (!query.trim()) return data.sections
@@ -136,7 +133,7 @@ export default function App() {
       .filter(Boolean)
   }, [data, query])
 
-  // Deep-link scroll after data loads
+  // Deep-link after data loads
   useEffect(() => {
     if (!data) return
     const id = decodeURIComponent(location.hash.replace('#', ''))
@@ -145,7 +142,6 @@ export default function App() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [data])
 
-  // Actions
   const onCopyLink = (id) => {
     const url = `${location.origin}${location.pathname}#${id}`
     navigator.clipboard.writeText(url)
@@ -171,21 +167,26 @@ export default function App() {
 
   return (
     <div className="min-h-screen themed-bg">
-      {/* Inject theme CSS */}
       <style>{THEME_CSS}</style>
 
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2"
          style={{background:'#2563eb',color:'#fff',padding:'0.5rem 0.75rem',borderRadius:'0.5rem'}}>Skip to content</a>
 
-      <header className="sticky top-0 z-40 border-b"
-              style={{backdropFilter:'blur(8px)'}}
+      {/* Full-width header with ONLY a bottom border */}
+      <header
+        className="sticky top-0 z-40"
+        style={{
+          backdropFilter: 'blur(8px)',
+          background: 'var(--panel)',
+          borderBottom: '1px solid var(--border)'
+        }}
       >
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 themed-panel border-theme"
-             style={{borderWidth:1}}>
+        {/* No borders on the inner container to avoid edge lines */}
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
           <button aria-label="Toggle table of contents"
                   onClick={() => setTocOpen(v => !v)}
                   className="md:hidden inline-flex items-center justify-center"
-                  style={{ width:36, height:36, borderRadius:12, border:'1px solid', borderColor:'var(--border)'}}>
+                  style={{ width:36, height:36, borderRadius:12, border:'1px solid var(--border)'}}>
             ☰
           </button>
 
@@ -211,7 +212,7 @@ export default function App() {
               disabled={!data}
             />
 
-            {/* Theme toggle (no Tailwind dark dependency) */}
+            {/* Theme toggle */}
             <button
               onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
               className="btn-theme"
@@ -222,6 +223,21 @@ export default function App() {
             >
               {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
             </button>
+
+            <div className="hidden md:flex gap-2">
+              <button onClick={onExportMarkdown} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Export MD
+              </button>
+              <button onClick={onExportHTML} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Export HTML
+              </button>
+              <button onClick={() => window.print()} disabled={!data} className="btn-theme"
+                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
+                Print
+              </button>
+            </div>
           </div>
         </div>
       </header>
