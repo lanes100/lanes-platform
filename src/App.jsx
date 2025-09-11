@@ -159,7 +159,7 @@ export default function App() {
   )
 }
 
-function escapeRegExp(str){return str.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function escapeRegExp(str){return str.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')}
 function downloadFile(name, content, type){
   const blob=new Blob([content],{type});
   const a=document.createElement('a');
@@ -266,6 +266,10 @@ const PLATFORM_DATA = {
         {
           "title": "Live-and-Let-Live",
           "text": "Safeguard personal freedoms from undue government intrusion."
+        },
+        {
+          "title": "Secular Governance",
+          "text": "Strengthen the separation of church and state: prohibit religious tests for office, bar use of public funds for religious indoctrination, keep government policy and public education neutral on religion, and remove official religious endorsements or symbols from government institutions."
         }
       ]
     },
@@ -423,7 +427,7 @@ const PLATFORM_DATA = {
         },
         {
           "title": "High-Speed Rail & Transit",
-          "text": "Fund national HSR corridors and clean mass transit\u2014ambitious but essential for mobility, climate, and competitiveness."
+          "text": "Fund national HSR corridors and clean mass transit—ambitious but essential for mobility, climate, and competitiveness."
         },
         {
           "title": "Digital Commons",
