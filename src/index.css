@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Typography tweak for prose spacing */
+.prose :where(h2):not(:where(.not-prose *)) {
+  margin-top: 1.25em;
+}
