@@ -53,6 +53,8 @@ mark{ background: var(--mark); color: inherit; }
 .prose{ color: var(--text); }
 .prose h1,.prose h2,.prose h3,.prose h4{ color: var(--text); }
 .prose p,.prose li{ color: var(--text); }
+/* <<< Fix: ensure bold text follows theme in dark mode >>> */
+.prose strong, .prose b{ color: var(--text) !important; font-weight: 700; }
 .prose a{ color: var(--link); }
 `;
 
@@ -199,16 +201,6 @@ export default function App() {
             </span>
           )}
 
-          {/* Edit on GitHub */}
-          <a
-            href={`https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/platform.json`}
-            target="_blank" rel="noreferrer"
-            className="ml-2 text-xs"
-            style={{ textDecoration:'underline', color:'var(--link)' }}
-          >
-            Edit platform.json
-          </a>
-
           <div className="ml-auto flex items-center gap-2">
             <input
               value={query}
@@ -230,21 +222,6 @@ export default function App() {
             >
               {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
             </button>
-
-            <div className="hidden md:flex gap-2">
-              <button onClick={onExportMarkdown} disabled={!data} className="btn-theme"
-                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
-                Export MD
-              </button>
-              <button onClick={onExportHTML} disabled={!data} className="btn-theme"
-                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
-                Export HTML
-              </button>
-              <button onClick={() => window.print()} disabled={!data} className="btn-theme"
-                      style={{ border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, opacity: data ? 1 : 0.5 }}>
-                Print
-              </button>
-            </div>
           </div>
         </div>
       </header>
@@ -341,6 +318,18 @@ export default function App() {
 
       <footer className="py-8 text-center" style={{ borderTop:'1px solid var(--border)', color:'var(--muted)', fontSize:14 }}>
         Built with ❤️ — Vite + React. Theme: {theme}
+        <div style={{ marginTop:12 }}>
+          <a
+            href={`https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/platform.json`}
+            target="_blank" rel="noreferrer"
+            className="btn-theme"
+            style={{ display:'inline-block', border:'1px solid var(--border)', borderRadius:12, padding:'0.5rem 0.75rem', fontSize:14, textDecoration:'none' }}
+            aria-label="Edit platform.json on GitHub"
+            title="Edit"
+          >
+            ✏️ Edit
+          </a>
+        </div>
       </footer>
     </div>
   )
