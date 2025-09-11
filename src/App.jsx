@@ -1,35 +1,60 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-// Always load JSON from GitHub API (no fallback)
-const GH_API_URL = 'https://api.github.com/repos/lanes100/lanes-platform/contents/platform.json?ref=main'
+// ====== GitHub endpoints ======
+const OWNER   = 'lanes100'
+const REPO    = 'lanes-platform'
+const BRANCH  = 'main'
+const GH_API_URL = `https://api.github.com/repos/${OWNER}/${REPO}/contents/platform.json?ref=${BRANCH}`
+const COMMITS_URL = `https://api.github.com/repos/${OWNER}/${REPO}/commits?path=platform.json&per_page=1&sha=${BRANCH}`
+
+// ====== Theme helpers ======
+function getInitialTheme() {
+  const saved = localStorage.getItem('pp_theme')
+  if (saved === 'dark' || saved === 'light') return saved
+  // default to system preference
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+function applyTheme(theme) {
+  const root = document.documentElement
+  const body = document.body
+  if (theme === 'dark') {
+    root.classList.add('dark'); body.classList.add('dark')
+  } else {
+    root.classList.remove('dark'); body.classList.remove('dark')
+  }
+  localStorage.setItem('pp_theme', theme)
+}
 
 export default function App() {
   const [query, setQuery] = useState('')
-  const [dark, setDark] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
 
+  // Theme
+  const [theme, setTheme] = useState(getInitialTheme())
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
+  // If user hasn't set a preference, follow system changes until they click the toggle
+  useEffect(() => {
+    const saved = localStorage.getItem('pp_theme')
+    if (saved === 'dark' || saved === 'light') return // user set a pref
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e) => applyTheme(e.matches ? 'dark' : 'light')
+    mq.addEventListener?.('change', handler)
+    return () => mq.removeEventListener?.('change', handler)
+  }, [])
+
+  // Data
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [lastUpdated, setLastUpdated] = useState(null)
 
-  // Dark mode
-  useEffect(() => {
-    const saved = localStorage.getItem('pp_dark')
-    if (saved) setDark(saved === '1')
-  }, [])
-  useEffect(() => {
-    const root = document.documentElement
-    if (dark) root.classList.add('dark')
-    else root.classList.remove('dark')
-    localStorage.setItem('pp_dark', dark ? '1' : '0')
-  }, [dark])
-
-  // Fetch platform.json from GitHub API (base64 -> JSON)
+  // Fetch platform.json (GitHub API) + last commit timestamp
   useEffect(() => {
     const ac = new AbortController()
-    const load = async () => {
-      setLoading(true)
-      setError(null)
+    ;(async () => {
+      setLoading(true); setError(null)
       try {
         const res = await fetch(`${GH_API_URL}&t=${Date.now()}`, {
           cache: 'no-store',
@@ -42,17 +67,26 @@ export default function App() {
         const decoded = JSON.parse(atob(file.content.replace(/\n/g, '')))
         if (!decoded?.sections?.length) throw new Error('Invalid JSON (no sections)')
         setData(decoded)
+
+        // get last updated timestamp
+        try {
+          const cRes = await fetch(`${COMMITS_URL}&t=${Date.now()}`, { cache: 'no-store', signal: ac.signal })
+          if (cRes.ok) {
+            const commits = await cRes.json()
+            const iso = commits?.[0]?.commit?.author?.date || commits?.[0]?.commit?.committer?.date
+            if (iso) setLastUpdated(iso)
+          }
+        } catch {}
       } catch (e) {
         if (e.name !== 'AbortError') setError(e.message || 'Failed to load platform.json')
       } finally {
         setLoading(false)
       }
-    }
-    load()
+    })()
     return () => ac.abort()
   }, [])
 
-  // Filter for search
+  // Search filter
   const filtered = useMemo(() => {
     if (!data) return []
     if (!query.trim()) return data.sections
@@ -70,13 +104,20 @@ export default function App() {
       .filter(Boolean)
   }, [data, query])
 
-  // Copy deep link
+  // Deep-link scroll after data loads
+  useEffect(() => {
+    if (!data) return
+    const id = decodeURIComponent(location.hash.replace('#', ''))
+    if (!id) return
+    const el = document.getElementById(id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [data])
+
+  // Actions
   const onCopyLink = (id) => {
     const url = `${location.origin}${location.pathname}#${id}`
     navigator.clipboard.writeText(url)
   }
-
-  // Export helpers
   const onExportMarkdown = () => {
     if (!data) return
     const md = buildMarkdown(data)
@@ -87,15 +128,6 @@ export default function App() {
     const html = buildHTML(data)
     downloadFile('platform.html', html, 'text/html;charset=utf-8')
   }
-
-  // Deep-link scroll on first load
-  useEffect(() => {
-    const id = decodeURIComponent(location.hash.replace('#', ''))
-    if (!id) return
-    const el = document.getElementById(id)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }, [])
-
   const highlight = (text) => {
     if (!query.trim()) return text
     const q = query.trim()
@@ -118,9 +150,27 @@ export default function App() {
           >
             ☰
           </button>
+
           <h1 className="text-xl font-bold tracking-tight">
             {data?.title || 'Policy Platform'}
           </h1>
+
+          {/* Last updated pill */}
+          {lastUpdated && (
+            <span className="ml-2 hidden md:inline-flex items-center text-xs border border-zinc-300 dark:border-zinc-700 rounded-xl px-2 py-1">
+              Updated {new Date(lastUpdated).toLocaleString()}
+            </span>
+          )}
+
+          {/* Edit on GitHub */}
+          <a
+            href={`https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/platform.json`}
+            target="_blank" rel="noreferrer"
+            className="ml-2 text-xs underline"
+          >
+            Edit platform.json
+          </a>
+
           <div className="ml-auto flex items-center gap-2">
             <input
               value={query}
@@ -129,14 +179,18 @@ export default function App() {
               className="w-56 md:w-72 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white/80 dark:bg-zinc-900/80 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               disabled={!data}
             />
+
+            {/* Dark/Light toggle */}
             <button
-              onClick={() => setDark(d => !d)}
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
               className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm"
-              aria-pressed={dark}
+              aria-pressed={theme === 'dark'}
               aria-label="Toggle dark mode"
+              title="Toggle dark/light"
             >
-              {dark ? 'Light' : 'Dark'}
+              {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
             </button>
+
             <div className="hidden md:flex gap-2">
               <button onClick={onExportMarkdown} disabled={!data} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm disabled:opacity-50">Export MD</button>
               <button onClick={onExportHTML} disabled={!data} className="rounded-xl border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm disabled:opacity-50">Export HTML</button>
@@ -165,53 +219,57 @@ export default function App() {
 
         {/* Main */}
         <main id="main" className="prose prose-zinc dark:prose-invert max-w-none">
-          {!loading && !error && data && (
-            <p className="text-zinc-600 dark:text-zinc-400">
-              Vision: restore faith in government, empower people through democracy, defend individual freedoms,
-              and build a just economy and sustainable future.
-            </p>
-          )}
-
           {loading && <p className="text-sm text-zinc-500">Loading platform…</p>}
           {!loading && error && (
             <div className="text-sm text-red-600 dark:text-red-400">
               Failed to load <code>platform.json</code> ({error}).<br />
               Make sure it exists at:&nbsp;
-              <a className="underline" href="https://github.com/lanes100/lanes-platform/blob/main/platform.json" target="_blank" rel="noreferrer">
-                /lanes100/lanes-platform/platform.json
+              <a className="underline" href={`https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/platform.json`} target="_blank" rel="noreferrer">
+                /{OWNER}/{REPO}/platform.json
               </a>
             </div>
           )}
 
-          {!loading && !error && data && filtered.length === 0 && (
-            <p className="text-sm text-zinc-500">No matches for “{query}”.</p>
-          )}
-
-          {!loading && !error && data && filtered.map((sec) => (
-            <section id={sec.id} key={sec.id} className="scroll-mt-24">
-              <div className="flex items-start gap-3">
-                <h2 className="mt-8">{sec.index}. {sec.title}</h2>
-                <button onClick={() => onCopyLink(sec.id)} className="mt-8 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900" title="Copy link to section">Link</button>
-              </div>
-              {sec.subtitle && <p className="-mt-4 text-zinc-600 dark:text-zinc-400">{sec.subtitle}</p>}
-              {sec.items && (
-                <ul>
-                  {sec.items.map((it, idx) => (
-                    <li key={idx}>
-                      {it.title ? (
-                        <p><strong>{highlight(it.title)}:</strong> {highlight(it.text)}</p>
-                      ) : (
-                        <p>{highlight(it.text)}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-
           {!loading && !error && data && (
             <>
+              <p className="text-zinc-600 dark:text-zinc-400">
+                Vision: restore faith in government, empower people through democracy, defend individual freedoms,
+                and build a just economy and sustainable future.
+              </p>
+
+              {filtered.length === 0 && (
+                <p className="text-sm text-zinc-500">No matches for “{query}”.</p>
+              )}
+
+              {filtered.map((sec) => (
+                <section id={sec.id} key={sec.id} className="scroll-mt-24">
+                  <div className="flex items-start gap-3">
+                    <h2 className="mt-8">{sec.index}. {sec.title}</h2>
+                    <button
+                      onClick={() => onCopyLink(sec.id)}
+                      className="mt-8 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                      title="Copy link to section"
+                    >
+                      Link
+                    </button>
+                  </div>
+                  {sec.subtitle && <p className="-mt-4 text-zinc-600 dark:text-zinc-400">{sec.subtitle}</p>}
+                  {sec.items && (
+                    <ul>
+                      {sec.items.map((it, idx) => (
+                        <li key={idx}>
+                          {it.title ? (
+                            <p><strong>{highlight(it.title)}:</strong> {highlight(it.text)}</p>
+                          ) : (
+                            <p>{highlight(it.text)}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ))}
+
               <hr className="my-10" />
               <section id="vision" className="scroll-mt-24">
                 <h2>Vision Statement</h2>
@@ -229,7 +287,7 @@ export default function App() {
       </div>
 
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-8 text-center text-sm text-zinc-500">
-        Built with ❤️ — Vite + React + Tailwind. (Data from GitHub API)
+        Built with ❤️ — Vite + React + Tailwind.
       </footer>
     </div>
   )
